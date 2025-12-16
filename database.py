@@ -14,38 +14,40 @@ USE_LOCAL_DB = os.getenv("USE_LOCAL_DB", "true").lower() == "true"
 USE_CLOUD_DB = os.getenv("USE_CLOUD_DB", "false").lower() == "true"
 DATABASE_URL = os.getenv("DATABASE_URL")  # Optional: full connection string
 
-if USE_LOCAL_DB or (DATABASE_URL and not USE_CLOUD_DB):
-    # Local PostgreSQL database connection
-    if DATABASE_URL:
-        # Use full connection string if provided
-        engine = create_engine(
-            DATABASE_URL,
-            pool_size=5,
-            max_overflow=10,
-            pool_pre_ping=True,  # Verify connections before using
-            pool_recycle=3600,   # Recycle connections after 1 hour
-        )
-    else:
-        # Build connection string from individual components
-        DB_USER = os.getenv("DB_USER", "postgres")
-        DB_PASS = os.getenv("DB_PASSWORD", "")
-        DB_NAME = os.getenv("DB_NAME", "crypto_wallet")
-        DB_HOST = os.getenv("DB_HOST", "localhost")
-        DB_PORT = os.getenv("DB_PORT", "5432")
-        
-        # Create connection string for local PostgreSQL
-        # Using psycopg2 driver (psycopg2-binary is in requirements.txt)
-        connection_string = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-        engine = create_engine(
-            connection_string,
-            pool_size=5,
-            max_overflow=10,
-            pool_pre_ping=True,  # Verify connections before using
-            pool_recycle=3600,   # Recycle connections after 1 hour
-        )
-elif USE_CLOUD_DB:
+# Prioritize DATABASE_URL - if it exists, always use it (Render.com, Heroku, etc.)
+# This prevents accidentally using Google Cloud SQL when a DATABASE_URL is provided
+if DATABASE_URL:
+    # Use DATABASE_URL (Render.com, Heroku, etc. provide this)
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,  # Verify connections before using
+        pool_recycle=3600,   # Recycle connections after 1 hour
+    )
+elif USE_LOCAL_DB or not USE_CLOUD_DB:
+    # Local PostgreSQL database connection (when DATABASE_URL is not provided)
+    # Build connection string from individual components
+    DB_USER = os.getenv("DB_USER", "postgres")
+    DB_PASS = os.getenv("DB_PASSWORD", "")
+    DB_NAME = os.getenv("DB_NAME", "crypto_wallet")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    DB_PORT = os.getenv("DB_PORT", "5432")
+    
+    # Create connection string for local PostgreSQL
+    # Using psycopg2 driver (psycopg2-binary is in requirements.txt)
+    connection_string = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    engine = create_engine(
+        connection_string,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,  # Verify connections before using
+        pool_recycle=3600,   # Recycle connections after 1 hour
+    )
+elif USE_CLOUD_DB and not DATABASE_URL:
     # Google Cloud SQL database connection (original implementation)
     # Only import and initialize when actually using cloud database
+    # IMPORTANT: Never use Google Cloud SQL if DATABASE_URL is set (Render.com, Heroku, etc.)
     try:
         from google.cloud.sql.connector import Connector, IPTypes
     except ImportError as e:
