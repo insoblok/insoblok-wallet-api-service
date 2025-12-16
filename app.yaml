@@ -1,0 +1,34 @@
+runtime: python312
+
+entrypoint: uvicorn main:app --host 0.0.0.0 --port=8080 --timeout-keep-alive 30
+beta_settings:
+  cloud_sql_instances: insoblok-wallet-backend:us-east1:insoblok-wallet-db
+
+# Enable warmup requests to reduce cold start impact
+inbound_services:
+- warmup
+
+env_variables:
+  INSTANCE_CONNECTION_NAME: insoblok-wallet-backend:us-east1:insoblok-wallet-db
+  INFURA_PROJECT_ID: cd21ca163b6547678b4753d4f8a3a73a
+  ETHEREUM_WS_URL: wss://mainnet.infura.io/ws/v3
+  ETHEREUM_RPC_URL: https://mainnet.infura.io/v3
+  ETHERSCAN_URL: https://api.etherscan.io/v2/api/
+  ETHERSCAN_API_KEY: 9BS41GK9SSWS6MMS3Y6QMUCTCJZE6RPX8T
+  SEPOLIA_WS_URL: wss://sepolia.infura.io/ws/v3
+  SEPOLIA_RPC_URL: https://sepolia.infura.io/v3
+  JWT_ALGORITHM: HS256
+  ACCESS_TOKEN_EXPIRE_MINUTES: 30
+  DB_USER: postgres
+  DB_PASSWORD: fssSU<>QfMIv(eU2
+  DB_NAME: crypto_wallet
+  ADDRESS: "0xF0BB3CB7015556bBE7156003736db8f462B19aC1"
+  PRIVATE_KEY: 5a84f08c441c9fd99f79830f2295971cc0bb60cd95acd963f98e8908476e8dab
+  TRANSACTION_STATUS_UPDATE_PERIOD_SECONDS: 30
+# Optional: automatic scaling
+instance_class: F2
+
+resources:
+  cpu: 1
+  memory_gb: 0.5
+  disk_size_gb: 10

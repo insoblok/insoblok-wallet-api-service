@@ -1,0 +1,108 @@
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import sqlalchemy
+import os
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+# Check if using local database or cloud database
+# Default to local database for easier local development
+USE_LOCAL_DB = os.getenv("USE_LOCAL_DB", "true").lower() == "true"
+USE_CLOUD_DB = os.getenv("USE_CLOUD_DB", "false").lower() == "true"
+DATABASE_URL = os.getenv("DATABASE_URL")  # Optional: full connection string
+
+if USE_LOCAL_DB or (DATABASE_URL and not USE_CLOUD_DB):
+    # Local PostgreSQL database connection
+    if DATABASE_URL:
+        # Use full connection string if provided
+        engine = create_engine(
+            DATABASE_URL,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,  # Verify connections before using
+            pool_recycle=3600,   # Recycle connections after 1 hour
+        )
+    else:
+        # Build connection string from individual components
+        DB_USER = os.getenv("DB_USER", "postgres")
+        DB_PASS = os.getenv("DB_PASSWORD", "")
+        DB_NAME = os.getenv("DB_NAME", "crypto_wallet")
+        DB_HOST = os.getenv("DB_HOST", "localhost")
+        DB_PORT = os.getenv("DB_PORT", "5432")
+        
+        # Create connection string for local PostgreSQL
+        # Using psycopg2 driver (psycopg2-binary is in requirements.txt)
+        connection_string = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        engine = create_engine(
+            connection_string,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,  # Verify connections before using
+            pool_recycle=3600,   # Recycle connections after 1 hour
+        )
+elif USE_CLOUD_DB:
+    # Google Cloud SQL database connection (original implementation)
+    # Only import and initialize when actually using cloud database
+    from google.cloud.sql.connector import Connector, IPTypes
+    
+    DB_USER = os.getenv("DB_USER", "postgres")
+    DB_PASS = os.getenv("DB_PASSWORD", "")
+    DB_NAME = os.getenv("DB_NAME", "crypto_wallet")
+    INSTANCE_CONNECTION_NAME = os.getenv("INSTANCE_CONNECTION_NAME")
+    
+    if not INSTANCE_CONNECTION_NAME:
+        raise ValueError("INSTANCE_CONNECTION_NAME is required when using cloud database. Set USE_CLOUD_DB=false to use local database instead.")
+    
+    # Initialize Cloud SQL Connector
+    connector = Connector()
+    
+    def getconn():
+        return connector.connect(
+            INSTANCE_CONNECTION_NAME,
+            "pg8000",  # driver
+            user=DB_USER,
+            password=DB_PASS,
+            db=DB_NAME,
+            ip_type=IPTypes.PRIVATE if os.getenv("USE_PRIVATE_IP") == "true" else IPTypes.PUBLIC
+        )
+    
+    # Create SQLAlchemy engine with the connector and connection pooling
+    engine = sqlalchemy.create_engine(
+        "postgresql+pg8000://",
+        creator=getconn,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,  # Verify connections before using
+        pool_recycle=3600,   # Recycle connections after 1 hour
+    )
+else:
+    # Fallback to local database if neither is explicitly set
+    DB_USER = os.getenv("DB_USER", "postgres")
+    DB_PASS = os.getenv("DB_PASSWORD", "")
+    DB_NAME = os.getenv("DB_NAME", "crypto_wallet")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    DB_PORT = os.getenv("DB_PORT", "5432")
+    
+    connection_string = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    engine = create_engine(
+        connection_string,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,  # Verify connections before using
+        pool_recycle=3600,   # Recycle connections after 1 hour
+    )
+
+# Session and Base
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

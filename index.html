@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ethereum Wallet Tester</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <style>
+    .transaction-item {
+      border-left: 4px solid #007bff;
+      padding-left: 15px;
+      margin-bottom: 10px;
+    }
+    .transaction-success {
+      border-left-color: #28a745;
+    }
+    .transaction-failed {
+      border-left-color: #dc3545;
+    }
+    .transaction-pending {
+      border-left-color: #ffc107;
+    }
+    #transactionHistory {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .loading-spinner {
+      display: none;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body class="bg-light">
+  <div class="container py-5">
+    <h1 class="text-center mb-4">Ethereum Wallet Tester</h1>
+    
+    <!-- Wallet Section -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h5>Create Wallet</h5>
+        <input type="text" id="username" class="form-control mb-2" placeholder="Enter your name">
+        
+        <button class="btn btn-primary" onclick="createWallet()">Create New Wallet</button>
+        
+        <p class="mt-3"><strong>Address:</strong> <span id="walletAddress">-</span></p>
+      </div>
+    </div>
+
+    <!-- Balance Section -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h5>Check Balance</h5>
+        <input type="text" id="balanceAddress" class="form-control mb-2" placeholder="Enter wallet address">
+        <select id="networkBalance" class="form-select mb-2">
+          <option value="sepolia">Sepolia Testnet</option>
+          <option value="holesky">Holesky Testnet</option>
+          <option value="mainnet">Ethereum Mainnet</option>
+        </select>
+        <button class="btn btn-success" onclick="getBalance()">Check Balance</button>
+        <p class="mt-3"><strong>Balance:</strong> <span id="balanceResult">-</span></p>
+      </div>
+    </div>
+
+    <!-- Send Transaction -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h5>Send Ether</h5>
+        <input type="text" id="fromAddress" class="form-control mb-2" placeholder="From Address">
+        <input type="text" id="toAddress" class="form-control mb-2" placeholder="To Address">
+        <input type="text" id="amount" class="form-control mb-2" placeholder="Amount (ETH)">
+        <select id="networkSend" class="form-select mb-2">
+          <option value="sepolia">Sepolia Testnet</option>
+          <option value="holesky">Holesky Testnet</option>
+          <option value="mainnet">Ethereum Mainnet</option>
+        </select>
+        <button class="btn btn-warning" onclick="sendTransaction()">Send</button>
+        <p class="mt-3"><strong>Tx Hash:</strong> <span id="txHash">-</span></p>
+      </div>
+    </div>
+
+    <!-- Track Transaction -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h5>Track Transaction</h5>
+        <input type="text" id="txHashInput" class="form-control mb-2" placeholder="Enter Transaction Hash">
+        <select id="networkTrack" class="form-select mb-2">
+        </select>
+        <button class="btn btn-info" onclick="trackTransaction()">Track</button>
+        <div class="my-3 d-flex justify-content-between">
+          <span class="mt-3"><strong>Status:</strong> <span id="txStatus">-</span></span>
+          <span class="mt-3 d-none"><strong>Block Number:</strong> <span id="txBlockNumber">-</span></span>
+          <span class="mt-3 d-none"><strong>Transaction Fee:</strong> <span id="txFee">-</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transaction History Section -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h5>Transaction History</h5>
+        <div class="row mb-3">
+          <div class="col-md-8">
+            <input type="text" id="historyAddress" class="form-control" placeholder="Enter wallet address">
+          </div>
+          <div class="col-md-4">
+            <select id="networkHistory" class="form-select">
+            </select>
+          </div>
+        </div>
+        <div class="d-flex justify-content-center mb-5">
+            <button class="btn btn-primary" onclick="getTransactionHistory()">
+              <span id="historySpinner" class="loading-spinner me-2"></span>
+              Load History
+            </button>
+        </div>
+        
+        <div id="historyStats" class="mb-3 p-3 bg-light rounded" style="display: none;">
+          <div class="row d-none">
+            <div class="col-md-4">
+              <strong>Total Transactions:</strong> <span id="totalTransactions">0</span>
+            </div>
+            <div class="col-md-4">
+              <strong>Total Sent:</strong> <span id="totalSent">0 ETH</span>
+            </div>
+            <div class="col-md-4">
+              <strong>Total Received:</strong> <span id="totalReceived">0 ETH</span>
+            </div>
+          </div>
+        </div>
+        
+        <div id="transactionHistory">
+          <p class="text-muted text-center">No transaction history found</p>
+        </div>
+        
+        <div class="mt-3">
+          <button id="loadMoreBtn" class="btn btn-outline-secondary w-100" style="display: none;" onclick="loadMoreTransactions()">
+            Load More Transactions
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API_BASE = "http://localhost:8000"; // Your FastAPI/Django backend URL
+let currentAddress = "";
+let currentPage = 1;
+let isLoading = false;
+let hasMoreTransactions = true;
+const ETHER_IN_WEI = 10 ** 18;
+
+const transactionTrackSelect = document.getElementById("networkTrack");
+const transactionHistorySelect = document.getElementById("networkHistory");
+const txStatusSpan = document.getElementById("txStatus");
+const txBlockNumberSpan = document.getElementById("txBlockNumber");
+const txFeeSpan = document.getElementById("txFee");
+
+const networks = [{
+  name: "Ethereum Mainnet",
+  key: "eth_mainnet"
+}, {
+  name: "Sepolia Testnet",
+  key: "sepolia"
+// }, {
+//   name: "BNB Smart Chain",
+//   key:"bsc_mainnet"
+// }, {
+//   name: "BNB Smart Chain Testnet",
+//   key: "bsc_testnet"
+}]
+
+init();
+
+function init() {
+  displaySelectOptions();
+}
+
+function displaySelectOptions() {
+  for (const network of networks) {
+    const option = `<option value="${network.key}">${network.name}</option>`;
+    transactionHistorySelect.innerHTML += option;
+    transactionTrackSelect.innerHTML += option;
+  }
+}
+
+async function createWallet() {
+  try {
+    const res = await axios.post(`${API_BASE}/wallets`, {
+      name: document.getElementById("username").value.trim()
+    });
+    currentAddress = res.data.address.trim();
+    document.getElementById("walletAddress").textContent = currentAddress;
+
+  } catch (err) {
+    alert("Error creating wallet");
+  }
+}
+
+async function getBalance() {
+  const address = document.getElementById("balanceAddress").value;
+  currentAddress = address;
+  const network = document.getElementById("networkBalance").value;
+  try {
+    const res = await axios.get(`${API_BASE}/wallets/balance/${network}/${address}/`);
+    document.getElementById("balanceResult").textContent = Number(res.data.balance_eth).toFixed(8) + " ETH";
+  } catch (err) {
+    alert("Error fetching balance");
+  }
+}
+
+async function sendTransaction() {
+  const src = document.getElementById("fromAddress").value;
+  const dst = document.getElementById("toAddress").value;
+  const amount = document.getElementById("amount").value;
+  const network = document.getElementById("networkSend").value;
+  try {
+    const res = await axios.post(`${API_BASE}/wallets/send/`, { src, dst, amount, network });
+    document.getElementById("txHash").textContent = res.data.tx_hash;
+  } catch (err) {
+    alert(`Error sending transaction: ${err.response.data.detail}`);
+  }
+}
+
+async function trackTransaction() {
+  const txHash = document.getElementById("txHashInput").value;
+  const network = document.getElementById("networkTrack").value;
+  try {
+    const res = await axios.get(`${API_BASE}/wallets/tx_status/${network}/${txHash}`);
+    txStatusSpan.textContent = res.data.status;
+    if(res.data.status == "success") {
+      txBlockNumberSpan.textContent = res.data.block_number;
+      txBlockNumberSpan.parentElement.classList.remove("d-none");
+      txFeeSpan.textContent = Number(res.data.gas_price) * Number(res.data.gas_used);
+      txFeeSpan.parentElement.classList.remove("d-none");
+    }
+    else {
+      txBlockNumberSpan.parentElement.classList.add("d-none");
+      txFeeSpan.parentElement.classList.add("d-none");
+    }
+    
+  } catch (err) {
+    alert("Error tracking transaction");
+  }
+}
+
+// Transaction History Functions
+async function getTransactionHistory() {
+  const address = document.getElementById("historyAddress").value || currentAddress;
+  const network = document.getElementById("networkHistory").value;
+  // const limit = document.getElementById("limitHistory").value || 10;
+  const limit = 10;
+
+  if (!address) {
+    alert("Please enter a wallet address");
+    return;
+  }
+
+  isLoading = true;
+  currentPage = 1;
+  document.getElementById("historySpinner").style.display = 'inline-block';
+  
+  try {
+    const res = await axios.get(`${API_BASE}/wallets/transactions/${network}/${address}/`, {
+      params: { page: currentPage, limit: limit }
+    });
+    
+    displayTransactions(res.data);
+    hasMoreTransactions = res.data.has_more;
+    
+    if (hasMoreTransactions) {
+      document.getElementById("loadMoreBtn").style.display = 'block';
+    }
+    
+  } catch (err) {
+    console.error("Error fetching transaction history:", err);
+    document.getElementById("transactionHistory").innerHTML = `
+      <p class="text-danger text-center">Error loading transaction history</p>
+    `;
+  } finally {
+    isLoading = false;
+    document.getElementById("historySpinner").style.display = 'none';
+  }
+}
+
+async function loadMoreTransactions() {
+  if (isLoading || !hasMoreTransactions) return;
+  
+  const address = document.getElementById("historyAddress").value || currentAddress;
+  const network = document.getElementById("networkHistory").value;
+  const limit = document.getElementById("limitHistory").value || 10;
+  
+  isLoading = true;
+  currentPage++;
+  
+  try {
+    const res = await axios.get(`${API_BASE}/wallets/transactions/${network}/${address}/`, {
+      params: { page: currentPage, limit: limit }
+    });
+    
+    appendTransactions(res.data.transactions);
+    hasMoreTransactions = res.data.has_more;
+    
+    if (!hasMoreTransactions) {
+      document.getElementById("loadMoreBtn").style.display = 'none';
+    }
+    
+  } catch (err) {
+    console.error("Error loading more transactions:", err);
+    currentPage--; // Revert page on error
+  } finally {
+    isLoading = false;
+  }
+}
+
+function displayTransactions(transactions, stats) {
+  const historyContainer = document.getElementById("transactionHistory");
+  const statsContainer = document.getElementById("historyStats");
+  
+  if (transactions.length === 0) {
+    historyContainer.innerHTML = '<p class="text-muted text-center">No transaction history found</p>';
+    statsContainer.style.display = 'none';
+    return;
+  }
+  
+  // Show statistics
+  statsContainer.style.display = 'block';
+  // document.getElementById("totalTransactions").textContent = stats.total_count;
+  // document.getElementById("totalSent").textContent = stats.total_sent + " ETH";
+  // document.getElementById("totalReceived").textContent = stats.total_received + " ETH";
+  
+  // Display transactions
+  let html = '';
+  transactions.forEach(tx => {
+    html += createTransactionHtml(tx);
+  });
+  historyContainer.innerHTML = html;
+}
+
+function appendTransactions(transactions) {
+  if (transactions.length === 0) {
+    hasMoreTransactions = false;
+    document.getElementById("loadMoreBtn").style.display = 'none';
+    return;
+  }
+  
+  const historyContainer = document.getElementById("transactionHistory");
+  let html = '';
+  transactions.forEach(tx => {
+    html += createTransactionHtml(tx);
+  });
+  historyContainer.innerHTML += html;
+}
+
+function createTransactionHtml(tx) {
+  const isOutgoing = tx.from.toLowerCase() === document.getElementById("historyAddress").value.toLowerCase();
+  const amount = Number(tx.value / ETHER_IN_WEI).toFixed(6);
+  const gasFee = tx.gasUsed && tx.gasPrice ? (tx.gasUsed * tx.gasPrice / 1e18).toFixed(6) : 'N/A';
+  const date = tx.timeStamp ? new Date(Number(tx.timeStamp) * 1000).toLocaleString() : 'Pending';
+  
+  let statusClass = '';
+  let statusText = tx.confirmations ? "confirmed" : 'pending';
+  
+  switch (statusText.toLowerCase()) {
+    case 'success':
+    case 'confirmed':
+      statusClass = 'transaction-success';
+      statusText = '✅ Success';
+      break;
+    case 'failed':
+    case 'reverted':
+      statusClass = 'transaction-failed';
+      statusText = '❌ Failed';
+      break;
+    default:
+      statusClass = 'transaction-pending';
+      statusText = '⏳ Pending';
+  }
+  
+  return `
+    <div class="transaction-item ${statusClass}">
+      <div class="d-flex justify-content-between align-items-start">
+        <div class="flex-grow-1">
+          <div class="fw-bold">${isOutgoing ? '⬆️ Outgoing' : '⬇️ Incoming'}</div>
+          <div>Amount: <strong>${amount} ETH</strong></div>
+          <div>From: <code>${tx.from}</code></div>
+          <div>To: <code>${tx.to}</code></div>
+          <div>Gas Fee: ${gasFee} ETH</div>
+          <div>Date: ${date}</div>
+          <div>Status: ${statusText}</div>
+        </div>
+        <div class="text-end">
+          <small class="text-muted">Block: ${tx.blockNumber || 'Pending'}</small><br>
+          <a href="https://${document.getElementById("networkHistory").value === 'mainnet' ? '' : document.getElementById("networkHistory").value + '.'}etherscan.io/tx/${tx.hash}" 
+             target="_blank" class="btn btn-sm btn-outline-primary mt-2">
+            View
+          </a>
+        </div>
+      </div>
+      <small class="text-muted">Hash: ${tx.hash}</small>
+    </div>
+  `;
+}
+
+// Auto-fill address fields when wallet is created or balance is checked
+document.getElementById('balanceAddress').addEventListener('change', function() {
+  document.getElementById('fromAddress').value = this.value;
+  document.getElementById('historyAddress').value = this.value;
+});
+
+document.getElementById('walletAddress').addEventListener('DOMCharacterDataModified', function() {
+  if (this.textContent !== '-') {
+    document.getElementById('balanceAddress').value = this.textContent;
+    document.getElementById('fromAddress').value = this.textContent;
+    document.getElementById('historyAddress').value = this.textContent;
+  }
+});
+
+// Enter key support
+document.getElementById('historyAddress').addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') {
+    getTransactionHistory();
+  }
+});
+</script>
+</body>
+</html>
