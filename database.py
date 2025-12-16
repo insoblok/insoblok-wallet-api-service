@@ -44,27 +44,8 @@ elif USE_LOCAL_DB or not USE_CLOUD_DB:
         pool_pre_ping=True,  # Verify connections before using
         pool_recycle=3600,   # Recycle connections after 1 hour
     )
-elif USE_CLOUD_DB and not DATABASE_URL:
-    # Google Cloud SQL database connection (original implementation)
-    # Only import and initialize when actually using cloud database
-    # IMPORTANT: Never use Google Cloud SQL if DATABASE_URL is set (Render.com, Heroku, etc.)
-    try:
-        from google.cloud.sql.connector import Connector, IPTypes
-    except ImportError as e:
-        raise ImportError(
-            "Google Cloud SQL connector is not installed. "
-            "Install it with: pip install cloud-sql-python-connector pg8000. "
-            "Or set USE_CLOUD_DB=false to use local database instead."
-        ) from e
-    except Exception as e:
-        # If there's an authentication error, provide helpful message
-        if "credentials" in str(e).lower() or "authentication" in str(e).lower():
-            raise ValueError(
-                "Google Cloud authentication failed. "
-                "Set USE_CLOUD_DB=false to use local database instead, "
-                "or configure Google Cloud credentials properly."
-            ) from e
-        raise
+elif USE_CLOUD_DB:
+    
     
     DB_USER = os.getenv("DB_USER", "postgres")
     DB_PASS = os.getenv("DB_PASSWORD", "")
