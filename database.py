@@ -46,7 +46,23 @@ if USE_LOCAL_DB or (DATABASE_URL and not USE_CLOUD_DB):
 elif USE_CLOUD_DB:
     # Google Cloud SQL database connection (original implementation)
     # Only import and initialize when actually using cloud database
-    from google.cloud.sql.connector import Connector, IPTypes
+    try:
+        from google.cloud.sql.connector import Connector, IPTypes
+    except ImportError as e:
+        raise ImportError(
+            "Google Cloud SQL connector is not installed. "
+            "Install it with: pip install cloud-sql-python-connector pg8000. "
+            "Or set USE_CLOUD_DB=false to use local database instead."
+        ) from e
+    except Exception as e:
+        # If there's an authentication error, provide helpful message
+        if "credentials" in str(e).lower() or "authentication" in str(e).lower():
+            raise ValueError(
+                "Google Cloud authentication failed. "
+                "Set USE_CLOUD_DB=false to use local database instead, "
+                "or configure Google Cloud credentials properly."
+            ) from e
+        raise
     
     DB_USER = os.getenv("DB_USER", "postgres")
     DB_PASS = os.getenv("DB_PASSWORD", "")
@@ -56,28 +72,36 @@ elif USE_CLOUD_DB:
     if not INSTANCE_CONNECTION_NAME:
         raise ValueError("INSTANCE_CONNECTION_NAME is required when using cloud database. Set USE_CLOUD_DB=false to use local database instead.")
     
-    # Initialize Cloud SQL Connector
-    connector = Connector()
-    
-    def getconn():
-        return connector.connect(
-            INSTANCE_CONNECTION_NAME,
-            "pg8000",  # driver
-            user=DB_USER,
-            password=DB_PASS,
-            db=DB_NAME,
-            ip_type=IPTypes.PRIVATE if os.getenv("USE_PRIVATE_IP") == "true" else IPTypes.PUBLIC
+    try:
+        # Initialize Cloud SQL Connector
+        connector = Connector()
+        
+        def getconn():
+            return connector.connect(
+                INSTANCE_CONNECTION_NAME,
+                "pg8000",  # driver
+                user=DB_USER,
+                password=DB_PASS,
+                db=DB_NAME,
+                ip_type=IPTypes.PRIVATE if os.getenv("USE_PRIVATE_IP") == "true" else IPTypes.PUBLIC
+            )
+        
+        # Create SQLAlchemy engine with the connector and connection pooling
+        engine = sqlalchemy.create_engine(
+            "postgresql+pg8000://",
+            creator=getconn,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,  # Verify connections before using
+            pool_recycle=3600,   # Recycle connections after 1 hour
         )
-    
-    # Create SQLAlchemy engine with the connector and connection pooling
-    engine = sqlalchemy.create_engine(
-        "postgresql+pg8000://",
-        creator=getconn,
-        pool_size=5,
-        max_overflow=10,
-        pool_pre_ping=True,  # Verify connections before using
-        pool_recycle=3600,   # Recycle connections after 1 hour
-    )
+    except Exception as e:
+        if "credentials" in str(e).lower() or "authentication" in str(e).lower():
+            raise ValueError(
+                f"Google Cloud authentication error: {e}. "
+                "Set USE_CLOUD_DB=false and USE_LOCAL_DB=true to use local database instead."
+            ) from e
+        raise
 else:
     # Fallback to local database if neither is explicitly set
     DB_USER = os.getenv("DB_USER", "postgres")
